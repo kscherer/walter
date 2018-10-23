@@ -15,14 +15,12 @@ func main() {
 	var (
 		configFile string
 		version    bool
-		build      bool
-		deploy     bool
+		stage      string
 	)
 
 	flag.StringVar(&configFile, "config", defaultConfigFile, "file which define pipeline")
 	flag.BoolVar(&version, "version", false, "print version string")
-	flag.BoolVar(&build, "build", false, "run build")
-	flag.BoolVar(&deploy, "deploy", false, "run deploy")
+	flag.StringVar(&stage, "stage", "", "select the stage to run")
 
 	flag.Parse()
 
@@ -31,15 +29,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	if !build && !deploy {
-		log.Error("specify -build and/or -deploy flags")
-		os.Exit(1)
-	}
-
 	p, err := pipeline.LoadFromFile(configFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	os.Exit(p.Run(build, deploy))
+	os.Exit(p.Run(stage))
 }

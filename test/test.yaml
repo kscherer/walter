@@ -1,0 +1,15 @@
+stages:
+  - name: "build"
+    tasks:
+      - name: "setup build"
+        command: "echo setting up"
+      - name: "run build"
+        command: "FOO=bar; BAR=baz; echo building FOO=$FOO BAR=$BAR"
+    cleanup:
+      - name: "cleanup build"
+        command: "echo cleanup build ..."
+
+  - name: "deploy"
+    tasks:
+      - name: "run deploy"
+        command: "echo deploying ..."

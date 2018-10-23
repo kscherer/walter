@@ -3,6 +3,7 @@ package task
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -29,6 +30,7 @@ type Task struct {
 	Name           string
 	Command        string
 	Directory      string
+	Env            map[string]string
 	Parallel       []*Task
 	Serial         []*Task
 	Stdout         *bytes.Buffer
@@ -65,6 +67,12 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 	if t.OnlyIf != "" {
 		cmd := exec.Command("sh", "-c", t.OnlyIf)
 		cmd.Dir = t.Directory
+
+		cmd.Env = os.Environ()
+		for k, v := range t.Env {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
+
 		err := cmd.Run()
 
 		if err != nil {
@@ -81,10 +89,16 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 	}
 
 	log.Infof("[%s] Start task", t.Name)
+	log.Infof("[%s] Command %s: ", t.Name, t.Command)
 
 	t.Cmd = exec.Command("sh", "-c", t.Command)
 	t.Cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	t.Cmd.Dir = t.Directory
+
+	t.Cmd.Env = os.Environ()
+	for k, v := range t.Env {
+		t.Cmd.Env = append(t.Cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
 
 	if prevTask != nil && prevTask.Stdout != nil {
 		t.Cmd.Stdin = bytes.NewBuffer(prevTask.Stdout.Bytes())

@@ -4,10 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"time"
-
-	log "github.com/Sirupsen/logrus"
-
-	latest "github.com/tcnksm/go-latest"
 )
 
 // Name is application name
@@ -30,35 +26,5 @@ func OutputVersion() string {
 		fmt.Fprintf(&buf, " (%s)", GitCommit)
 	}
 	fmt.Fprintf(&buf, "\n")
-
-	// Check latest version is release or not.
-	verCheckCh := make(chan *latest.CheckResponse)
-	go func() {
-		fixFunc := latest.DeleteFrontV()
-		githubTag := &latest.GithubTag{
-			Owner:             "walter-cd",
-			Repository:        "walter",
-			FixVersionStrFunc: fixFunc,
-		}
-
-		res, err := latest.Check(githubTag, fixFunc(Version))
-		if err != nil {
-			// Don't return error
-			log.Debugf("[ERROR] Check lastet version is failed: %s", err)
-			return
-		}
-		verCheckCh <- res
-	}()
-
-	select {
-	case <-time.After(defaultCheckTimeout):
-	case res := <-verCheckCh:
-		if res.Outdated {
-			fmt.Fprintf(&buf,
-				"Latest version of walter is v%s, please upgrade!\n",
-				res.Current)
-		}
-	}
-
 	return buf.String()
 }

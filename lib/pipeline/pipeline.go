@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -14,46 +15,36 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/go-yaml/yaml"
-	"github.com/walter-cd/walter/lib/notify"
 	"github.com/walter-cd/walter/lib/task"
 )
 
+// Pipeline holds global settings and an array stages
 type Pipeline struct {
-	Build     Build
-	Deploy    Deploy
-	Notifiers []notify.Notifier
+	Stages []Stage
 }
 
-type Build struct {
+// Stage has a name and arrays of tasks and cleanup tasks
+type Stage struct {
+	Name    string
 	Tasks   Tasks
 	Cleanup Tasks
 }
 
-type Deploy struct {
-	Tasks   Tasks
-	Cleanup Tasks
-}
-
+// Tasks typedef for array of tasks
 type Tasks []*task.Task
 
+// Load the yaml file into the Pipeline object
 func Load(b []byte) (Pipeline, error) {
 	p := Pipeline{}
 	err := yaml.Unmarshal(b, &p)
-	if err == nil {
-		p.Notifiers, err = notify.NewNotifiers(b)
-		return p, err
-	}
-
-	t := Tasks{}
-	err = yaml.Unmarshal(b, &t)
 	if err != nil {
 		log.Error(err)
 	}
 
-	p.Build.Tasks = t
 	return p, nil
 }
 
+// LoadFromFile returns a pipeline object
 func LoadFromFile(file string) (Pipeline, error) {
 	data, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -62,54 +53,38 @@ func LoadFromFile(file string) (Pipeline, error) {
 	return Load(data)
 }
 
-func (p *Pipeline) Run(build, deploy bool) int {
+// Run all the tasks and cleanup commands in the pipeline
+func (p *Pipeline) Run(stageToRun string) int {
 	failed := false
 
-	if build {
-		log.Info("Build started")
+	numStages := len(p.Stages)
+	for i, stage := range p.Stages {
+		name := stage.Name
+		numStage := i + 1
+		if stageToRun != "" && name != stageToRun {
+			log.Info(fmt.Sprintf("Stage %s [%d of %d] skipped", name, numStage, numStages))
+			continue
+		}
+		log.Info(fmt.Sprintf("Stage %s [%d of %d] started", name, numStage, numStages))
 		ctx, cancel := context.WithCancel(context.Background())
-		err := p.runTasks(ctx, cancel, p.Build.Tasks, nil)
+		err := p.runTasks(ctx, cancel, stage.Tasks, nil)
 		if err != nil {
-			log.Error("Build failed")
+			log.Error(fmt.Sprintf("Stage %s failed", name))
 			failed = true
 		} else {
-			log.Info("Build succeeded")
+			log.Info(fmt.Sprintf("Stage %s succeeded", name))
 		}
 
-		log.Info("Build cleanup started")
-		ctx, cancel = context.WithCancel(context.Background())
-		err = p.runTasks(ctx, cancel, p.Build.Cleanup, nil)
-		if err != nil {
-			log.Error("Build cleanup failed")
-			failed = true
-		} else {
-			log.Info("Build cleanup succeeded")
-		}
-
-		if failed {
-			return 1
-		}
-	}
-
-	if deploy {
-		log.Info("Deploy started")
-		ctx, cancel := context.WithCancel(context.Background())
-		err := p.runTasks(ctx, cancel, p.Deploy.Tasks, nil)
-		if err != nil {
-			log.Error("Deploy failed")
-			failed = true
-		} else {
-			log.Info("Deploy succeeded")
-		}
-
-		log.Info("Deploy cleanup started")
-		ctx, cancel = context.WithCancel(context.Background())
-		err = p.runTasks(ctx, cancel, p.Deploy.Cleanup, nil)
-		if err != nil {
-			log.Error("Deploy cleanup failed")
-			failed = true
-		} else {
-			log.Info("Deploy cleanup succeeded")
+		if len(stage.Cleanup) > 0 {
+			log.Info(fmt.Sprintf("Stage %s [%d of %d] cleanup started", name, numStage, numStages))
+			ctx, cancel = context.WithCancel(context.Background())
+			err = p.runTasks(ctx, cancel, stage.Cleanup, nil)
+			if err != nil {
+				log.Error(fmt.Sprintf("Stage %s cleanup failed", name))
+				failed = true
+			} else {
+				log.Info(fmt.Sprintf("Stage %s cleanup succeeded", name))
+			}
 		}
 
 		if failed {
@@ -188,9 +163,6 @@ func (p *Pipeline) runTasks(ctx context.Context, cancel context.CancelFunc, task
 			log.Errorf("[%s] %s", t.Name, err)
 		}
 
-		for _, n := range p.Notifiers {
-			n.Notify(t)
-		}
 	}
 
 	if failed {
@@ -231,9 +203,6 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 
 			t.Run(ctx, cancel, prevTask)
 
-			for _, n := range p.Notifiers {
-				n.Notify(t)
-			}
 		}(t)
 	}
 	wg.Wait()
@@ -255,10 +224,9 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 
 	if t.Status == task.Failed {
 		return errors.New("One of parallel tasks failed")
-	} else {
-		log.Infof("[%s] End task", t.Name)
-		return nil
 	}
+	log.Infof("[%s] End task", t.Name)
+	return nil
 }
 
 func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *task.Task, prevTask *task.Task) error {
@@ -296,8 +264,7 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 
 	if t.Status == task.Failed {
 		return errors.New("One of serial tasks failed")
-	} else {
-		log.Infof("[%s] End task", t.Name)
-		return nil
 	}
+	log.Infof("[%s] End task", t.Name)
+	return nil
 }
