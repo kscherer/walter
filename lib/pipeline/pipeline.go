@@ -54,7 +54,7 @@ func LoadFromFile(file string) (Pipeline, error) {
 }
 
 // Run all the tasks and cleanup commands in the pipeline
-func (p *Pipeline) Run(stageToRun string) int {
+func (p *Pipeline) Run(stageToRun string, build_id string) int {
 	failed := false
 
 	numStages := len(p.Stages)

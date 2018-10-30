@@ -6,6 +6,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"github.com/gofrs/uuid"
 	"github.com/walter-cd/walter/lib/pipeline"
 )
 
@@ -16,11 +17,13 @@ func main() {
 		configFile string
 		version    bool
 		stage      string
+		build_id   string
 	)
 
 	flag.StringVar(&configFile, "config", defaultConfigFile, "file which define pipeline")
 	flag.BoolVar(&version, "version", false, "print version string")
 	flag.StringVar(&stage, "stage", "", "select the stage to run")
+	flag.StringVar(&build_id, "build_id", "", "specify the build id to use. Default random uuid")
 
 	flag.Parse()
 
@@ -34,5 +37,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	os.Exit(p.Run(stage))
+	if build_id == "" {
+		uuid, err := uuid.NewV4()
+		if err != nil {
+			log.Fatal("failed to generate UUID: %v", err)
+		}
+		build_id = uuid.String()
+	}
+
+	os.Exit(p.Run(stage, build_id))
 }

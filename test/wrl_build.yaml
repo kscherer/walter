@@ -2,92 +2,107 @@ stages:
   - name: "Prep"
     tasks:
       - name: "Get Scripts"
-        command: "if [ -d ci-scripts ]; then cd ci-scripts && git pull; else git clone --branch master git://lxgit.wrs.com/projects/wrlinux-ci/ci-scripts.git; fi"
+        command: |
+          if [ -d ci-scripts ]; then \
+            cd ci-scripts && git fetch -a; git reset --hard origin/master; \
+          else \
+            git clone --branch master git://lxgit.wrs.com/projects/wrlinux-ci/ci-scripts.git; \
+          fi
+
       - name: "Docker Run Check"
-        command: >
-          docker run --rm --name build --hostname $HOSTNAME -i
-          -u 0 --tmpfs /tmp --tmpfs /var/tmp
-          -v /var/run/docker.sock:/var/run/docker.sock
-          -v /etc/localtime:/etc/localtime:ro
-          -v $PWD:/mnt
-          docker:stable
-          sh /mnt/ci-scripts/docker_run_check.sh
+        command: |
+          docker run --rm --name run_check_$BUILD_ID --hostname $HOSTNAME -it \
+            -u 0 --tmpfs /tmp --tmpfs /var/tmp \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /etc/localtime:/etc/localtime:ro \
+            -v $PWD:/mnt \
+            docker:stable \
+            sh /mnt/ci-scripts/docker_run_check.sh
+
       - name: "Directory setup"
-        command: >
-          docker run --rm --name build --hostname $HOSTNAME -it
-          -u 0 --tmpfs /tmp --tmpfs /var/tmp
-          -v /etc/localtime:/etc/localtime:ro
-          -v $PWD:/mnt
-          wr-docker-registry:5000/ubuntu1604_64
-          bash -c "mkdir -p /mnt/builds/ &&
-          mkdir -p /mnt/cache &&
-          chown 1000 /mnt/builds &&
+        command: |
+          docker run --rm --name setup_$BUILD_ID --hostname $HOSTNAME -it \
+          -u 0 --tmpfs /tmp --tmpfs /var/tmp \
+          -v /etc/localtime:/etc/localtime:ro \
+          -v $PWD:/mnt \
+          ${REGISTRY:-windriver}/ubuntu1604_64 \
+          bash -c "mkdir -p /mnt/builds/ && \
+          mkdir -p /mnt/cache && \
+          chown 1000 /mnt/builds && \
           chown 1000 /mnt/cache"
 
   - name: "Cache Sources"
     tasks:
       - name: "Update"
-        command: >
-          docker run --rm --name build --hostname $HOSTNAME -it
-          -u 1000 --tmpfs /tmp --tmpfs /var/tmp
-          -v /etc/localtime:/etc/localtime:ro
-          -v $PWD:/mnt
-          -e BASE=/mnt/cache
-          -e REMOTE=git://yow-git.wrs.com/wrlinux-x
-          wr-docker-registry:5000/ubuntu1604_64
+        command: |
+          docker run --rm --name update_$BUILD_ID --hostname $HOSTNAME -it \
+          -u 1000 --tmpfs /tmp --tmpfs /var/tmp \
+          -v /etc/localtime:/etc/localtime:ro \
+          -v $PWD:/mnt \
+          -e BASE=/mnt/cache \
+          -e REMOTE=git://yow-git.wrs.com/wrlinux-x \
+          ${REGISTRY:-windriver}/ubuntu1604_64 \
           /mnt/ci-scripts/wrlinux_update.sh WRLINUX_10_17_LTS
 
   - name: "Build"
     tasks:
       - name: "Clone wrlinux-x"
         command: >
-          docker run --rm --name build --hostname $HOSTNAME -i
-          -u 1000
-          --tmpfs /tmp --tmpfs /var/tmp
+          docker run --rm --name clone_$BUILD_ID --hostname $HOSTNAME -it
+          -u 1000 --tmpfs /tmp --tmpfs /var/tmp
           -v /etc/localtime:/etc/localtime:ro
           -v $PWD:/mnt
-          wr-docker-registry:5000/ubuntu1604_64
-          bash -c "mkdir -p /mnt/builds/build-1234 &&
-          cd /mnt/builds/build-1234 &&
-          git clone --branch WRLINUX_10_17_LTS --single-branch /mnt/cache/wrlinux-dev-WRLINUX_10_17_LTS/wrlinux-x""
-          
+          ${REGISTRY:-windriver}/ubuntu1604_64
+          bash -c "mkdir -p /mnt/builds/build-$BUILD_ID &&
+          cd /mnt/builds/build-$BUILD_ID &&
+          git clone --branch WRLINUX_10_17_LTS --single-branch /mnt/cache/wrlinux-dev-WRLINUX_10_17_LTS/wrlinux-x"
+
       - name: "Setup"
         command: >
-          docker run --rm --name build --hostname $HOSTNAME -i
-          -u 1000
-          --tmpfs /tmp --tmpfs /var/tmp
+          docker run --rm --name setup_$BUILD_ID --hostname $HOSTNAME -it
+          -u 1000 --tmpfs /tmp --tmpfs /var/tmp
           -v /etc/localtime:/etc/localtime:ro
           -v $PWD:/mnt
-          wr-docker-registry:5000/ubuntu1604_64
-          bash -c "cd /mnt/builds/build-1234 &&
-          wrlinux-x/setup.py --distro=wrlinux --machine=intel-x86-64 --dl-layers --accept-eula=yes"
+          -w /mnt/builds/build-$BUILD_ID
+          ${REGISTRY:-windriver}/ubuntu1604_64
+          bash -c "wrlinux-x/setup.sh --distro=wrlinux --machine=intel-x86-64 --dl-layers --accept-eula=yes"
 
-      - name: "Build"
+      - name: "Prebuild"
         command: >
-          docker run --rm --name build --hostname $HOSTNAME -i
-          -u 1000
-          --tmpfs /tmp --tmpfs /var/tmp
+          docker run --rm --name prebuild_$BUILD_ID --hostname $HOSTNAME -it
+          -u 1000 --tmpfs /tmp --tmpfs /var/tmp
           -v /etc/localtime:/etc/localtime:ro
           -v $PWD:/mnt
           -e LANG=en_US.UTF-8
-          wr-docker-registry:5000/ubuntu1604_64
-          bash -c "cd /mnt/builds/build-1234 &&
-          . ./environment-setup-x86_64-wrlinuxsdk-linux &&
+          -w /mnt/builds/build-$BUILD_ID
+          ${REGISTRY:-windriver}/ubuntu1604_64
+          bash -c ". ./environment-setup-x86_64-wrlinuxsdk-linux &&
           . ./oe-init-build-env intel-x86_64-std &&
-          /mnt/ci-scripts/build_configure.sh
+          /mnt/ci-scripts/build_configure.sh"
+
+      - name: "Build"
+        command: >
+          docker run --rm --name build_$BUILD_ID --hostname $HOSTNAME -it
+          -u 1000 --tmpfs /tmp --tmpfs /var/tmp
+          -v /etc/localtime:/etc/localtime:ro
+          -v $PWD:/mnt
+          -e LANG=en_US.UTF-8
+          -w /mnt/builds/build-$BUILD_ID
+          ${REGISTRY:-windriver}/ubuntu1604_64
+          bash -c ". ./environment-setup-x86_64-wrlinuxsdk-linux &&
+          . ./oe-init-build-env intel-x86_64-std &&
           bitbake wrlinux-image-glibc-std"
- 
+
   - name: "Test"
     tasks:
       - name: "Build for test"
         command: >
-          docker run --rm --name build --hostname $HOSTNAME -i
-          -u 1000
-          --tmpfs /tmp --tmpfs /var/tmp
+          docker run --rm --name build_test_$BUILD_ID --hostname $HOSTNAME -it
+          -u 1000 --tmpfs /tmp --tmpfs /var/tmp
           -v /etc/localtime:/etc/localtime:ro
           -v $PWD:/mnt
-          wr-docker-registry:5000/ubuntu1604_64
-          bash -c "cd /mnt/builds/build-1234 &&
-          . ./environment-setup-x86_64-wrlinuxsdk-linux &&
+          -w /mnt/builds/build-$BUILD_ID
+          ${REGISTRY:-windriver}/ubuntu1604_64
+          bash -c ". ./environment-setup-x86_64-wrlinuxsdk-linux &&
           . ./oe-init-build-env intel-x86_64-std &&
           bitbake wrlinux-image-glibc-std -c testexport"

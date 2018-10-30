@@ -18,6 +18,14 @@
   version = "v2.2.1"
 
 [[projects]]
+  digest = "1:ce579162ae1341f3e5ab30c0dce767f28b1eb6a81359aad01723f1ba6b4becdf"
+  name = "github.com/gofrs/uuid"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "370558f003bfe29580cd0f698d8640daccdcc45c"
+  version = "v3.1.1"
+
+[[projects]]
   branch = "master"
   digest = "1:76ee51c3f468493aff39dbacc401e8831fbb765104cbf613b89bef01cf4bad70"
   name = "golang.org/x/net"
@@ -39,6 +47,7 @@
   input-imports = [
     "github.com/Sirupsen/logrus",
     "github.com/go-yaml/yaml",
+    "github.com/gofrs/uuid",
     "golang.org/x/net/context",
   ]
   solver-name = "gps-cdcl"
