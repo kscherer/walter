@@ -77,7 +77,7 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 
 		if len(stage.Cleanup) > 0 {
 			log.Info(fmt.Sprintf("Stage %s [%d of %d] cleanup started", name, numStage, numStages))
-			ctx, cancel = context.WithCancel(context.Background())
+			ctx, cancel = context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
 			err = p.runTasks(ctx, cancel, stage.Cleanup, nil)
 			if err != nil {
 				log.Error(fmt.Sprintf("Stage %s cleanup failed", name))
