@@ -4,7 +4,7 @@ stages:
       - name: "setup build"
         command: "echo setting up"
       - name: "run build"
-        command: "FOO=bar; BAR=baz; echo building FOO=$FOO BAR=$BAR"
+        command: "FOO=bar; echo building FOO=$FOO BUILD_ID=$BUILD_ID"
     cleanup:
       - name: "cleanup build"
         command: "echo cleanup build ..."

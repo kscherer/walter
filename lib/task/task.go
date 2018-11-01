@@ -26,6 +26,10 @@ const (
 	Aborted
 )
 
+type key int
+
+const BuildID key = 0
+
 type Task struct {
 	Name           string
 	Command        string
@@ -64,11 +68,14 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 		}
 	}
 
+	buildID := ctx.Value(BuildID)
+
 	if t.OnlyIf != "" {
 		cmd := exec.Command("sh", "-c", t.OnlyIf)
 		cmd.Dir = t.Directory
 
 		cmd.Env = os.Environ()
+		cmd.Env = append(cmd.Env, fmt.Sprintf("BUILD_ID=%s", buildID))
 		for k, v := range t.Env {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 		}
@@ -89,13 +96,14 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 	}
 
 	log.Infof("[%s] Start task", t.Name)
-	log.Infof("[%s] Command %s: ", t.Name, t.Command)
+	log.Infof("[%s] Command: %s ", t.Name, t.Command)
 
 	t.Cmd = exec.Command("sh", "-c", t.Command)
 	t.Cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	t.Cmd.Dir = t.Directory
 
 	t.Cmd.Env = os.Environ()
+	t.Cmd.Env = append(t.Cmd.Env, fmt.Sprintf("BUILD_ID=%s", buildID))
 	for k, v := range t.Env {
 		t.Cmd.Env = append(t.Cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}

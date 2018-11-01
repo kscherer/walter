@@ -54,7 +54,7 @@ func LoadFromFile(file string) (Pipeline, error) {
 }
 
 // Run all the tasks and cleanup commands in the pipeline
-func (p *Pipeline) Run(stageToRun string, build_id string) int {
+func (p *Pipeline) Run(stageToRun string, buildID string) int {
 	failed := false
 
 	numStages := len(p.Stages)
@@ -66,7 +66,7 @@ func (p *Pipeline) Run(stageToRun string, build_id string) int {
 			continue
 		}
 		log.Info(fmt.Sprintf("Stage %s [%d of %d] started", name, numStage, numStages))
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
 		err := p.runTasks(ctx, cancel, stage.Tasks, nil)
 		if err != nil {
 			log.Error(fmt.Sprintf("Stage %s failed", name))

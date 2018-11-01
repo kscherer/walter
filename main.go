@@ -17,13 +17,13 @@ func main() {
 		configFile string
 		version    bool
 		stage      string
-		build_id   string
+		buildID    string
 	)
 
 	flag.StringVar(&configFile, "config", defaultConfigFile, "file which define pipeline")
 	flag.BoolVar(&version, "version", false, "print version string")
 	flag.StringVar(&stage, "stage", "", "select the stage to run")
-	flag.StringVar(&build_id, "build_id", "", "specify the build id to use. Default random uuid")
+	flag.StringVar(&buildID, "build_id", "", "specify the build id to use. Default random uuid")
 
 	flag.Parse()
 
@@ -37,13 +37,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if build_id == "" {
+	if buildID == "" {
 		uuid, err := uuid.NewV4()
 		if err != nil {
 			log.Fatal("failed to generate UUID: %v", err)
 		}
-		build_id = uuid.String()
+		buildID = uuid.String()
 	}
 
-	os.Exit(p.Run(stage, build_id))
+	os.Exit(p.Run(stage, buildID))
 }
