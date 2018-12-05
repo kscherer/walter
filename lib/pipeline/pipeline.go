@@ -211,12 +211,10 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 
 	t.Stdout = new(bytes.Buffer)
 	t.Stderr = new(bytes.Buffer)
-	t.CombinedOutput = new(bytes.Buffer)
 
 	for _, child := range tasks {
 		t.Stdout.Write(child.Stdout.Bytes())
 		t.Stderr.Write(child.Stderr.Bytes())
-		t.CombinedOutput.Write(child.CombinedOutput.Bytes())
 		if child.Status == task.Failed {
 			t.Status = task.Failed
 		}
@@ -255,12 +253,10 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 
 	t.Stdout = new(bytes.Buffer)
 	t.Stderr = new(bytes.Buffer)
-	t.CombinedOutput = new(bytes.Buffer)
 
 	lastTask := tasks[len(tasks)-1]
 	t.Stdout.Write(lastTask.Stdout.Bytes())
 	t.Stderr.Write(lastTask.Stderr.Bytes())
-	t.CombinedOutput.Write(lastTask.CombinedOutput.Bytes())
 
 	if t.Status == task.Failed {
 		return errors.New("One of serial tasks failed")

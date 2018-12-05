@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 
 	"golang.org/x/net/context"
@@ -31,27 +30,24 @@ type key int
 const BuildID key = 0
 
 type Task struct {
-	Name           string
-	Command        string
-	Directory      string
-	Env            map[string]string
-	Parallel       []*Task
-	Serial         []*Task
-	Stdout         *bytes.Buffer
-	Stderr         *bytes.Buffer
-	CombinedOutput *bytes.Buffer
-	Status         int
-	Cmd            *exec.Cmd
-	Include        string
-	OnlyIf         string   `yaml:"only_if"`
-	WaitFor        *WaitFor `yaml:"wait_for"`
+	Name      string
+	Command   string
+	Directory string
+	Env       map[string]string
+	Parallel  []*Task
+	Serial    []*Task
+	Stdout    *bytes.Buffer
+	Stderr    *bytes.Buffer
+	Status    int
+	Cmd       *exec.Cmd
+	Include   string
+	OnlyIf    string   `yaml:"only_if"`
+	WaitFor   *WaitFor `yaml:"wait_for"`
 }
 
 type outputHandler struct {
-	task   *Task
-	writer io.Writer
-	copy   io.Writer
-	mu     *sync.Mutex
+	buf  *bytes.Buffer
+	task *Task
 }
 
 func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Task) error {
@@ -95,7 +91,6 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 		}
 	}
 
-	log.Infof("[%s] Start task", t.Name)
 	log.Infof("[%s] Command: %s ", t.Name, t.Command)
 
 	t.Cmd = exec.Command("sh", "-c", t.Command)
@@ -114,11 +109,9 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 
 	t.Stdout = new(bytes.Buffer)
 	t.Stderr = new(bytes.Buffer)
-	t.CombinedOutput = new(bytes.Buffer)
 
-	var mu sync.Mutex
-	t.Cmd.Stdout = &outputHandler{t, t.Stdout, t.CombinedOutput, &mu}
-	t.Cmd.Stderr = &outputHandler{t, t.Stderr, t.CombinedOutput, &mu}
+	t.Cmd.Stdout = &outputHandler{t.Stdout, t}
+	t.Cmd.Stderr = &outputHandler{t.Stderr, t}
 
 	if err := t.Cmd.Start(); err != nil {
 		t.Status = Failed
@@ -155,20 +148,38 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 		return errors.New("Task failed")
 	}
 
-	if t.Status == Succeeded {
-		log.Infof("[%s] End task", t.Name)
-	}
-
 	return nil
 }
 
-func (o *outputHandler) Write(b []byte) (int, error) {
-	log.Infof("[%s] %s", o.task.Name, strings.TrimSuffix(string(b), "\n"))
+func (o *outputHandler) Write(b []byte) (n int, err error) {
+	if n, err = o.buf.Write(b); err != nil {
+		return
+	}
 
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.writer.Write(b)
-	o.copy.Write(b)
+	for {
+		line, err := o.buf.ReadString('\n')
+
+		if len(line) > 0 {
+			if strings.HasSuffix(line, "\n") {
+				log.Infof("[%s] %s", o.task.Name, line)
+			} else {
+				// put back into buffer, it's not a complete line yet
+				//  Close() or Flush() have to be used to flush out
+				//  the last remaining line if it does not end with a newline
+				if _, err := o.buf.WriteString(line); err != nil {
+					return 0, err
+				}
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return 0, err
+		}
+	}
 
 	return len(b), nil
 }
