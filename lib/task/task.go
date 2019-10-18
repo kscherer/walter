@@ -142,10 +142,10 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 
 	// Flush any remaining bytes on the buffer
 	var p []byte
-	if _, err := t.Stderr.Read(p); err == nil {
+	if _, err := t.Stderr.Read(p); len(p) > 0 && err == nil {
 		log.Infof("[%s] %s", t.Name, string(p))
 	}
-	if _, err := t.Stdout.Read(p); err == nil {
+	if _, err := t.Stdout.Read(p); len(p) > 0 && err == nil {
 		log.Infof("[%s] %s", t.Name, string(p))
 	}
 
