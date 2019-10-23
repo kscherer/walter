@@ -1,0 +1,88 @@
+stages:
+- name: Serial
+  tasks:
+    - name: "Serial: Task 1"
+      command: echo "Serial Task 1 ..."
+    - name: "Serial: Task 2"
+      command: echo "Serial Task 2 ..." && stress --cpu 1 --timeout 1s
+    - name: "Serial: Task 3"
+      command: echo "Serial Task 3 ..."
+- name: Parallel
+  tasks:
+    - name: "Parallel: Task 1"
+      command: echo "Parallel Task 1 ..."
+    - name: "Parallel: Task 2"
+      command: echo "Parallel Task 2 ..."
+    - include: $PWD/test/parallel.yml
+    - name: "Parallel: Task 4"
+      command: echo "Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel: Cleanup"
+      command: echo "Cleanup Parallel ..."
+- name: Parallel Serial
+  tasks:
+    - name: "Parallel Serial: Task 1"
+      command: echo "Parallel Serial Task 1 ..."
+    - name: "Parallel Serial: Task 2"
+      command: echo "Parallel Serial Task 2 ..."
+    - include: $PWD/test/parallel_serial.yml
+    - name: "Parallel Serial: Task 4"
+      command: echo "Parallel Serial Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel Serial: Cleanup"
+      command: echo "Cleanup Parallel Serial ..."
+- name: Parallel Serial Parallel
+  tasks:
+    - name: "Parallel Serial Parallel: Task 1"
+      command: echo "Parallel Serial Parallel Task 1 ..."
+    - name: "Parallel Serial Parallel: Task 2"
+      command: echo "Parallel Serial Parallel Task 2 ..."
+    - include: $PWD/test/parallel_serial_parallel.yml
+    - name: "Parallel Serial Parallel: Task 4"
+      command: echo "Parallel Serial Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel Serial Parallel: Cleanup"
+      command: echo "Cleanup Parallel Serial Parallel ..."
+- name: Good
+  tasks:
+    - name: "Run good script"
+      command: echo "Running good script ..." && bash $PWD/test/good.sh
+  cleanup:
+    - name: "Good: Cleanup"
+      command: echo "Cleanup Good ..."
+- name: Bad
+  tasks:
+    - name: "Run bad script"
+      command: echo "Running bad script ..." && bash $PWD/test/bad.sh
+  cleanup:
+    - name: "Bad: Cleanup"
+      command: echo "Cleanup Bad ..."
+- name: Good And Bad
+  tasks:
+    - name: "Good And Bad: Task 1"
+      command: echo "Stage 1 Task 1 ..."
+    - name: "Good And Bad: Bad"
+      command: echo "Stage 1 Task Bad ..." && bash $PWD/test/bad.sh
+    - name: "Good And Bad: Task 3"
+      command: echo "Stage 1 Task 3 ..."
+    - name: "Good And Bad: Good"
+      command: echo "Stage 1 Task Good ..." && bash $PWD/test/good.sh
+    - name: "Good And Bad: Task 5"
+      command: echo "Stage 1 Task 5 ..."
+  cleanup:
+    - name: "Good And Bad: Cleanup Part 1"
+      command: echo "Cleanup Good And Bad Part 1 ..."
+    - name: "Good And Bad: Cleanup Part 2"
+      command: echo "Cleanup Good And Bad Part 2 ..."
+- name: Wait For
+  tasks:
+    - name: "Wait For 3 seconds"
+      command: echo "3 seconds passed"
+      wait_for:
+        delay: 3
+  cleanup:
+    - name: "Wait For: Cleanup"
+      command: echo "Cleanup Wait For ..."
+- name: 8
+- name: 9
+- name: 10

@@ -1,0 +1,22 @@
+- name: "Parallel"
+  parallel:
+    - name: "Parallel 1"
+      command: echo "Parallel 1" && stress --cpu 1 --timeout 3s
+    - name: "Serial"
+      serial:
+        - name: Serial 1
+          command: echo "Parallel 1 Serial 1" && stress --cpu 1 --timeout 1s
+        - name: Serial Parallel
+          parallel:
+            - name: Serial Parallel 1
+              command: echo "Serial Parallel 1 " && stress --cpu 1 --timeout 1s
+            - name: Serial Parallel 2
+              command: echo "Serial Parallel 2 " && stress --cpu 1 --timeout 1s
+            - name: Serial Parallel 3
+              command: echo "Serial Parallel 3 " && stress --cpu 1 --timeout 1s
+        - name: Serial 2
+          command: echo "Parallel 1 Serial 2" && stress --cpu 1 --timeout 3s
+    - name: "Parallel 2"
+      command: echo "Parallel 2" && stress --cpu 1 --timeout 3s
+    - name: "Parallel 3"
+      command: echo "Parallel 3"
