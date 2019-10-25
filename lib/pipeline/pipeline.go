@@ -200,7 +200,12 @@ func (p *Pipeline) runTasks(ctx context.Context, cancel context.CancelFunc, task
 				log.Error(err)
 				return err
 			}
-			p.runTasks(ctx, cancel, include, prevTask)
+
+			err = p.runTasks(ctx, cancel, include, prevTask)
+			if err != nil {
+				failed = true
+			}
+
 			continue
 		}
 
@@ -336,8 +341,12 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 	t.Stderr = new(bytes.Buffer)
 
 	lastTask := tasks[len(tasks)-1]
-	t.Stdout.Write(lastTask.Stdout.Bytes())
-	t.Stderr.Write(lastTask.Stderr.Bytes())
+
+	// Stdout and Stderr buffer of lastTask could be nil if it is skipped
+	if lastTask.Stdout != nil {
+		t.Stdout.Write(lastTask.Stdout.Bytes())
+		t.Stderr.Write(lastTask.Stderr.Bytes())
+	}
 
 	if t.Status == task.Failed {
 		return errors.New("One of serial tasks failed")
