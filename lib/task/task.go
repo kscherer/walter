@@ -2,6 +2,7 @@ package task
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,9 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/net/context"
-
 	log "github.com/Sirupsen/logrus"
+	"github.com/walter-cd/walter/lib/util"
 )
 
 const (
@@ -55,6 +55,8 @@ type outputHandler struct {
 }
 
 var CancelWg sync.WaitGroup
+
+var statusLock sync.Mutex
 
 func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Task) error {
 	if t.Command == "" {
@@ -140,6 +142,10 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 		for {
 			select {
 			case <-ctx.Done(): // Handle interrupt or failures and quit
+				// Acquire lock to read and change task status
+				statusLock.Lock()
+				defer statusLock.Unlock()
+
 				if t.Status == Running {
 					t.Status = Aborted
 
@@ -148,6 +154,7 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 
 						select {
 						case <-time.After(timeoutBeforeKill):
+							log.Warnf("[%s] Did not terminate in %v, sending SIGKILL...", t.Name, timeoutBeforeKill)
 							err := syscall.Kill(-t.Cmd.Process.Pid, syscall.SIGKILL)
 							if err != nil {
 								log.Errorf("[%s] failed to terminate: %v", t.Name, err)
@@ -178,6 +185,10 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 
 	commandFinished <- t.Cmd.Wait()
 
+	// Acquire lock to read and change task status
+	statusLock.Lock()
+	defer statusLock.Unlock()
+
 	// Flush any remaining bytes on the buffer
 	var p []byte
 	if _, err := t.Stderr.Read(p); len(p) > 0 && err == nil {
@@ -189,7 +200,7 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 
 	// If the current task is interrupted, abort changing the status of
 	// the task and return immediately
-	if Interrupted(ctx) {
+	if util.Interrupted(ctx) {
 		return nil
 	}
 
@@ -238,14 +249,4 @@ func (o *outputHandler) Write(b []byte) (n int, err error) {
 	}
 
 	return len(b), nil
-}
-
-// Interrupted returns true if walter is interrupted by Ctrl-c
-func Interrupted(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return true
-	default:
-		return false
-	}
 }

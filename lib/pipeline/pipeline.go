@@ -2,21 +2,20 @@ package pipeline
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/signal"
 	"regexp"
 	"strings"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
 
-	"golang.org/x/net/context"
-
 	"github.com/go-yaml/yaml"
 	"github.com/walter-cd/walter/lib/task"
+	"github.com/walter-cd/walter/lib/util"
 )
 
 // Pipeline holds global settings and an array stages
@@ -34,11 +33,8 @@ type Stage struct {
 // Tasks typedef for array of tasks
 type Tasks []*task.Task
 
-type InterruptHandler func() bool
-
-var cleanupListener chan struct{}
-var interruptListener chan os.Signal
-var handler InterruptHandler
+// Handling function for interrupts
+var handler util.InterruptHandler
 
 // Load the yaml file into the Pipeline object
 func Load(b []byte) (Pipeline, error) {
@@ -60,12 +56,21 @@ func LoadFromFile(file string) (Pipeline, error) {
 	return Load(data)
 }
 
+// handleInterrupt sets up the channel for listening system interrupt signals
+func handleInterrupt() {
+	log.Infoln("Interrupted, aborting all running tasks...")
+	failed := handler()
+	if failed {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
 // Run all the tasks and cleanup commands in the pipeline
 func (p *Pipeline) Run(stageToRun string, buildID string) int {
-	// Create channel to listen to interrupt signal and setup interrupt handler
-	interruptListener = make(chan os.Signal, 1)
-	signal.Notify(interruptListener, os.Interrupt)
-	go p.handleInterrupt()
+	// Setup interrupt handling
+	util.PrepareInterrupt(handleInterrupt)
 
 	failed := false
 
@@ -102,11 +107,11 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 
 		err := p.runTasks(ctx, cancel, stage.Tasks, nil)
 
-		if task.Interrupted(ctx) {
+		if util.Interrupted(ctx) {
 			// This line effectively blocks subsequent lines from running
 			// if an interruption occurs when the task is running. A call
 			// to exit the program will happen in handleInterrupt function
-			<-cleanupListener
+			util.WaitClean()
 		}
 
 		if err != nil {
@@ -124,22 +129,6 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 	}
 
 	return 0
-}
-
-// handleInterrupt sets up the channel for listening system interrupt signals
-func (p *Pipeline) handleInterrupt() {
-	<-interruptListener
-
-	// Create channel to listen to the completion of cleanup
-	cleanupListener = make(chan struct{})
-
-	log.Infoln("Interrupted, aborting all running tasks...")
-	failed := handler()
-	if failed {
-		os.Exit(1)
-	}
-
-	os.Exit(0)
 }
 
 // cleanupStage runs the cleanup task for the stage specified
@@ -195,7 +184,7 @@ func (p *Pipeline) runTasks(ctx context.Context, cancel context.CancelFunc, task
 	defer task.CancelWg.Add(-taskNum)
 
 	for i, t := range tasks {
-		if task.Interrupted(ctx) {
+		if util.Interrupted(ctx) {
 			// Skip execution of all subsequent tasks if interrupted
 			log.Warnf("[%s] Task skipped: interrupt received", t.Name)
 			continue
@@ -289,7 +278,7 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 	wg.Wait()
 
 	// If an interrupt is received, return immediately
-	if task.Interrupted(ctx) {
+	if util.Interrupted(ctx) {
 		return nil
 	}
 
@@ -332,7 +321,7 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 	p.runTasks(ctx, cancel, tasks, prevTask)
 
 	// If an interrupt is received, return immediately
-	if task.Interrupted(ctx) {
+	if util.Interrupted(ctx) {
 		return nil
 	}
 
