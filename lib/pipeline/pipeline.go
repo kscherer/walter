@@ -121,9 +121,9 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 			log.Info(fmt.Sprintf("Stage %s succeeded", name))
 		}
 
-		failed = p.cleanupStage(buildID, stage, numStage)
+		cleanFailed := p.cleanupStage(buildID, stage, numStage)
 
-		if failed {
+		if failed || cleanFailed {
 			return 1
 		}
 	}
