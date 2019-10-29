@@ -8,9 +8,9 @@ Walter
 $ go get https://github.com/walter-cd/walter
 $ cd $GOPATH/src/github.com/walter-cd/walter
 # Add the remote containing customized version of walter
-$ git remote add kschere https://github.com/kschere/walter
+$ git remote add kscherer https://github.com/kscherer/walter
 # Fetch changes
-$ git fetch kschere
+$ git fetch kscherer
 $ git checkout stages
 # Build Walter, this creates the walter binary under bin/
 $ make build
