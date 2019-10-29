@@ -43,6 +43,12 @@ stages:
   cleanup:
     - name: "Parallel Serial Parallel: Cleanup"
       command: echo "Cleanup Parallel Serial Parallel ..."
+- name: Clean Fail
+  tasks:
+    - name: "Clean will fail"
+      command: echo "Clean will fail" && stress --cpu 1 --timeout 1s
+  cleanup:
+    - include: $PWD/test/cleanFail.yml
 - name: Good
   tasks:
     - name: "Run good script"

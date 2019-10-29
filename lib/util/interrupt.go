@@ -36,9 +36,14 @@ func PrepareInterrupt(handleInterrupt func()) {
 	go listenInterrupt(handleInterrupt)
 }
 
-// Interrupted returns true when a SIGINT is received
+// Interrupted returns true when a SIGINT is received for the current context
 func Interrupted(ctx context.Context) bool {
-	return interrupted.Load().(bool)
+	select {
+	case <-ctx.Done():
+		return interrupted.Load().(bool)
+	default:
+		return false
+	}
 }
 
 // WaitInterrupt blocks until an interrupt happens

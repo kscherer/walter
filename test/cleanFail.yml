@@ -1,0 +1,2 @@
+- name: Clean Fail
+  command: echo "Failed Clean ..." && abc
