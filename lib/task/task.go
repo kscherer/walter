@@ -56,12 +56,12 @@ type outputHandler struct {
 
 var CancelWg sync.WaitGroup
 
-var statusLock sync.Mutex
-
 func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Task) error {
 	if t.Command == "" {
 		return nil
 	}
+
+	var statusLock sync.Mutex
 
 	// Add current task into the wait group
 	CancelWg.Add(1)
