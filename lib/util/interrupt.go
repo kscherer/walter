@@ -13,7 +13,7 @@ type InterruptHandler func() bool
 var cleanupListener = make(chan struct{})
 
 // Create channel to listen to interrupt signal and setup interrupt handler
-var interruptListener = make(chan os.Signal, 1)
+var interruptListener = make(chan os.Signal, 2)
 
 // Atomic value indicating if the program is interrupted
 var interrupted atomic.Value
@@ -46,9 +46,9 @@ func Interrupted(ctx context.Context) bool {
 	}
 }
 
-// WaitInterrupt blocks until an interrupt happens
-func WaitInterrupt() {
-	<-interruptListener
+// ForceQuit returns the interruptListener channel
+func ForceQuit() <-chan os.Signal {
+	return interruptListener
 }
 
 // WaitClean blocks until cleanupListener channel receives

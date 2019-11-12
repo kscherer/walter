@@ -58,7 +58,9 @@ func LoadFromFile(file string) (Pipeline, error) {
 
 // handleInterrupt sets up the channel for listening system interrupt signals
 func handleInterrupt() {
-	log.Infoln("Interrupted, aborting all running tasks...")
+	log.Warningln("Interrupted, aborting all running tasks...")
+	log.Warningln("Press Ctrl-c again to force quit")
+
 	failed := handler()
 	if failed {
 		os.Exit(1)

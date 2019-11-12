@@ -171,6 +171,22 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 									log.Errorf("[%s] commandFinished with error: %v", t.Name, err)
 								}
 							}
+						case <-util.ForceQuit():
+							// https://golang.org/pkg/os/#FindProcess
+							// First check if process still exists using os.FindProcess. This check is only valid on non-Unix systems.
+							// On non-Unix systems, FindProcess returns an error if the process does not exist
+							// On Unix systems, FindProcess succeeds and returns a new process with given PID if the process
+							// does not exist.
+							if _, err := os.FindProcess(t.Cmd.Process.Pid); err == nil {
+								err := syscall.Kill(-t.Cmd.Process.Pid, syscall.SIGKILL)
+								// Check errno code in case we are on a Unix system and syscall.Kill
+								// returned an ESRCH (no such process) error
+								if err != nil && err != syscall.ESRCH {
+									log.Errorf("[%s] failed to terminate: %v", t.Name, err)
+								} else {
+									log.Warningln("Received second Ctrl-c, force quit...")
+								}
+							}
 						}
 
 						log.Warnf("[%s] aborted", t.Name)
