@@ -274,11 +274,17 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 			defer wg.Done()
 
 			if len(t.Serial) > 0 {
-				p.runSerial(ctx, cancel, t, prevTask)
+				err := p.runSerial(ctx, cancel, t, prevTask)
+				if err != nil {
+					log.Errorf("[%s] %v", t.Name, err)
+				}
 				return
 			}
 
-			t.Run(ctx, cancel, prevTask)
+			err := t.Run(ctx, cancel, prevTask)
+			if err != nil {
+				log.Errorf("[%s] %s", t.Name, err)
+			}
 
 		}(t)
 	}
@@ -302,10 +308,11 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 		}
 	}
 
-	if t.Status == task.Failed {
-		return errors.New("One of parallel tasks failed")
-	}
 	log.Infof("[%s] End task", t.Name)
+	if t.Status == task.Failed {
+		return errors.New("Parallel task failed")
+	}
+
 	return nil
 }
 
@@ -325,7 +332,10 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 
 	log.Infof("[%s] Start task", t.Name)
 
-	p.runTasks(ctx, cancel, tasks, prevTask)
+	err := p.runTasks(ctx, cancel, tasks, prevTask)
+	if err != nil {
+		log.Errorf("[%s] %s", t.Name, err)
+	}
 
 	// If an interrupt is received, return immediately
 	if util.Interrupted(ctx) {
@@ -350,9 +360,10 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 		t.Stderr.Write(lastTask.Stderr.Bytes())
 	}
 
-	if t.Status == task.Failed {
-		return errors.New("One of serial tasks failed")
-	}
 	log.Infof("[%s] End task", t.Name)
+	if t.Status == task.Failed {
+		return errors.New("Serial task failed")
+	}
+
 	return nil
 }
