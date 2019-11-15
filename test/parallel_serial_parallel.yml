@@ -1,4 +1,4 @@
-- name: "Parallel"
+- name: "Parallel Serial Parallel"
   parallel:
     - name: "Parallel 1"
       command: echo "Parallel 1" && stress --cpu 1 --timeout 3s

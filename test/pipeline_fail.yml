@@ -1,69 +1,57 @@
 stages:
-- name: Serial
+- name: Serial Fail
   tasks:
     - name: "Serial: Task 1"
       command: echo "Serial Task 1 ..."
     - name: "Serial: Task 2"
-      command: echo "Serial Task 2 ..." && stress --cpu 1 --timeout 3s
+      command: echo "Serial Task 2 ..." && abc
     - name: "Serial: Task 3"
       command: echo "Serial Task 3 ..."
-- name: Directory
+- name: Directory Fail
   tasks:
     - name: "Directory: Task 1"
       command: pwd
-      directory: /usr
-- name: Parallel
+      directory: /abc
+- name: Parallel Fail
   tasks:
     - name: "Parallel: Task 1"
       command: echo "Parallel Task 1 ..."
     - name: "Parallel: Task 2"
       command: echo "Parallel Task 2 ..."
-    - include: test/parallel.yml
+    - include: test/parallel_fail.yml
     - name: "Parallel: Task 4"
-      command: echo "Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
+      command: echo "Parallel Task 4 ..."
   cleanup:
     - name: "Parallel: Cleanup"
       command: echo "Cleanup Parallel ..."
-- name: Parallel Serial
+- name: Parallel Serial Fail
   tasks:
     - name: "Parallel Serial: Task 1"
       command: echo "Parallel Serial Task 1 ..."
     - name: "Parallel Serial: Task 2"
       command: echo "Parallel Serial Task 2 ..."
-    - include: test/parallel_serial.yml
+    - include: test/parallel_serial_fail.yml
     - name: "Parallel Serial: Task 4"
       command: echo "Parallel Serial Task 4 ..." && stress --cpu 1 --timeout 1s
   cleanup:
     - name: "Parallel Serial: Cleanup"
       command: echo "Cleanup Parallel Serial ..."
-- name: Parallel Serial Parallel
+- name: Parallel Serial Parallel Fail
   tasks:
     - name: "Parallel Serial Parallel: Task 1"
       command: echo "Parallel Serial Parallel Task 1 ..."
     - name: "Parallel Serial Parallel: Task 2"
       command: echo "Parallel Serial Parallel Task 2 ..."
-    - include: test/parallel_serial_parallel.yml
+    - include: test/parallel_serial_parallel_fail.yml
     - name: "Parallel Serial Parallel: Task 4"
       command: echo "Parallel Serial Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
   cleanup:
     - name: "Parallel Serial Parallel: Cleanup"
       command: echo "Cleanup Parallel Serial Parallel ..."
-- name: Script
+- name: Clean Fail
   tasks:
-    - name: "Run good script"
-      command: echo "Running good script ..." && bash test/good.sh
+    - name: "Clean will fail"
+      command: echo "Clean will fail" && stress --cpu 1 --timeout 1s
   cleanup:
-    - name: "Good: Cleanup"
-      command: echo "Cleanup Good ..."
-- name: Wait For
-  tasks:
-    - name: "Wait For 3 seconds"
-      command: echo "3 seconds passed"
-      wait_for:
-        delay: 3
-  cleanup:
-    - name: "Wait For: Cleanup"
-      command: echo "Cleanup Wait For ..."
-- name: 8
-- name: 9
-- name: 10
+    - name: Clean Fail
+      command: echo "Failed Clean ..." && abc

@@ -1,0 +1,88 @@
+stages:
+- name: Serial Interrupt
+  tasks:
+    - name: "Serial: Task 1"
+      command: echo "Serial Task 1 ..." > test/temp/TaskSerial1.tmp
+    - name: "Serial: Task 2"
+      command: echo "Serial Task 2 ..." > test/temp/TaskSerial2.tmp && stress --cpu 1 --timeout 3s
+    - name: "Serial: Task No Run"
+      command: echo "No Run" > test/temp/norun.tmp
+  cleanup:
+    - name: "Serial: Cleanup"
+      command: rm -f test/temp/TaskSerial*.tmp && stress --cpu 1 --timeout 3s
+- name: Parallel Interrupt
+  tasks:
+    - include: test/parallel_interrupt.yml
+    - name: "Parallel: Task No Run"
+      command: echo "No Run" > test/temp/norun.tmp
+  cleanup:
+    - name: "Parallel: Cleanup"
+      command: rm -f test/temp/TaskParallel*.tmp
+- name: Parallel Serial Interrupt
+  tasks:
+    - include: test/parallel_serial_interrupt.yml
+    - name: "Parallel: Task No Run"
+      command: echo "No Run" > test/temp/norun.tmp
+  cleanup:
+    - name: "Parallel Serial: Cleanup"
+      command: rm -f test/temp/TaskParallelSerial*.tmp
+- name: Parallel Serial Parallel Interrupt
+  tasks:
+    - include: test/parallel_serial_parallel_interrupt.yml
+    - name: "Parallel: Task No Run"
+      command: echo "No Run" > test/temp/norun.tmp
+  cleanup:
+    - name: "Parallel Serial Parallel: Cleanup"
+      command: rm -f test/temp/TaskParallelSerialParallel*.tmp
+- name: Good Interrupt
+  tasks:
+    - name: "Run good script"
+      command: echo "Running good script ..." && bash test/good.sh > test/temp/TaskGood1.tmp
+    - name: "Parallel: Task No Run"
+      command: echo "No Run" > test/temp/norun.tmp
+  cleanup:
+    - name: "Good: Cleanup"
+      command: rm -f test/temp/TaskGood1.tmp
+- name: Bad Interrupt
+  tasks:
+    - name: "Run bad script"
+      command: echo "Running bad script ..." && bash test/bad.sh > test/temp/TaskBad1.tmp
+    - name: "Parallel: Task No Run"
+      command: echo "No Run" > test/temp/norun.tmp
+  cleanup:
+    - name: "Bad: Cleanup"
+      command: rm -f test/temp/TaskBad1.tmp
+- name: Good And Bad Interrupt
+  tasks:
+    - name: "Good And Bad: Good"
+      command: echo "Task Good ..." && bash test/good.sh > test/temp/TaskGoodAndBad1.tmp
+    - name: "Good And Bad: Task 1"
+      command: echo "Task 1 ..." > test/temp/TaskGoodAndBad2.tmp
+    - name: "Good And Bad: Bad"
+      command: echo "Task Bad ..." && bash test/bad.sh > test/temp/TaskGoodAndBad3.tmp
+    - name: "Good And Bad: No Run"
+      command: echo "Task 2 ..." > test/temp/norun.tmp
+  cleanup:
+    - name: "Good And Bad: Cleanup"
+      command: rm -f test/temp/TaskGoodAndBad*.tmp
+- name: Abort Task
+  tasks:
+    - name: "Abort Task"
+      command: echo "Task will be aborted ..." > test/temp/TaskAbort1.tmp; bash test/abort.sh
+    - name: "Abort Task: Task 1"
+      command: echo "Task 1 ..." > test/temp/norun.tmp
+- name: Parallel Abort
+  tasks:
+    - name: "Parallel Abort"
+      parallel:
+        - name: "Parallel Abort: Abort1"
+          command: echo "Task will be aborted ..." > test/temp/TaskAbortParallel1.tmp; bash test/abort.sh
+        - name: "Parallel Abort: Task 1"
+          command: echo "Task 1 ..." > test/temp/TaskAbortParallel2.tmp
+        - name: "Parallel Abort: Abort2"
+          command: echo "Task will be aborted ..." > test/temp/TaskAbortParallel3.tmp; bash test/abort.sh
+    - name: "Parallel Abort: No Run"
+      command: echo "Task 2 ..." > test/temp/norun.tmp
+  cleanup:
+    - name: "Parallel Abort: Cleanup"
+      command: rm -f test/temp/TaskAbortParallel*.tmp

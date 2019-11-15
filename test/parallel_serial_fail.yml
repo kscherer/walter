@@ -5,7 +5,7 @@
     - name: "Serial"
       serial:
         - name: Serial 1
-          command: echo "Parallel 1 Serial 1" && stress --cpu 1 --timeout 1s
+          command: echo "Parallel 1 Serial 1" && abc
         - name: Serial 2
           command: echo "Parallel 1 Serial 2" && stress --cpu 1 --timeout 3s
     - name: "Parallel 2"

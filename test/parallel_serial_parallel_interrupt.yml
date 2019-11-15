@@ -1,0 +1,14 @@
+- name: "Parallel Serial Parallel"
+  parallel:
+    - name: "Parallel 1"
+      command: echo "Parallel 1" > test/temp/TaskParallelSerialParallel0.tmp && stress --cpu 1 --timeout 3s
+    - name: "Serial"
+      serial:
+        - name: Serial Parallel
+          parallel:
+            - name: Serial Parallel 1
+              command: echo "Serial Parallel 1 " > test/temp/TaskParallelSerialParallel1.tmp && stress --cpu 1 --timeout 3s
+            - name: Serial Parallel 2
+              command: echo "Serial Parallel 2 " > test/temp/TaskParallelSerialParallel2.tmp && stress --cpu 1 --timeout 3s
+        - name: Serial 1
+          command: echo "Parallel 1 Serial 1" > test/temp/TaskParallelSerialParallel3.tmp && stress --cpu 1 --timeout 3s
