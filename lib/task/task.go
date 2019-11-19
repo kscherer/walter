@@ -183,8 +183,6 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 								// returned an ESRCH (no such process) error
 								if err != nil && err != syscall.ESRCH {
 									log.Errorf("[%s] failed to terminate: %v", t.Name, err)
-								} else {
-									log.Warningln("Received second Ctrl-c, force quit...")
 								}
 							}
 						}

@@ -102,9 +102,16 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 				}
 			}
 
-			// Run cleanup for current stage
-			log.Info("Cleaning up...")
-			return p.cleanupStage(buildID, stage, numStage)
+			select {
+			// If user signals a force quit, skip cleanup
+			case <-util.ForceQuit():
+				log.Warningln("Received second Ctrl-c, force quit...")
+				return true
+			// Else run cleanup for current stage
+			default:
+				log.Info("Cleaning up...")
+				return p.cleanupStage(buildID, stage, numStage)
+			}
 		}
 
 		err := p.runTasks(ctx, cancel, stage.Tasks, nil)

@@ -13,24 +13,37 @@ type InterruptHandler func() bool
 var cleanupListener = make(chan struct{})
 
 // Create channel to listen to interrupt signal and setup interrupt handler
-var interruptListener = make(chan os.Signal, 2)
+var interruptListener = make(chan os.Signal)
 
 // Atomic value indicating if the program is interrupted
 var interrupted atomic.Value
+
+// forceQuitChan will be closed if the second SIGINT is received.
+// This channel does not pass any data
+var forceQuitChan chan bool
 
 // listenInterrupt listens for SIGINT, atomically sets the value
 // for interrupted and run the handler function
 func listenInterrupt(handleInterrupt func()) {
 	<-interruptListener
 	interrupted.Store(true)
+	go handleForceQuit()
 
 	handleInterrupt()
+}
+
+// handleForceQuit listens for the second SIGINT and close the forceQuitChan
+func handleForceQuit() {
+	<-interruptListener
+	close(forceQuitChan)
 }
 
 // PrepareInterrupt initializes interrupted value and sets up
 // the interrupt listener
 func PrepareInterrupt(handleInterrupt func()) {
 	interrupted.Store(false)
+
+	forceQuitChan = make(chan bool)
 
 	signal.Notify(interruptListener, os.Interrupt)
 	go listenInterrupt(handleInterrupt)
@@ -46,9 +59,9 @@ func Interrupted(ctx context.Context) bool {
 	}
 }
 
-// ForceQuit returns the interruptListener channel
-func ForceQuit() <-chan os.Signal {
-	return interruptListener
+// ForceQuit returns the forceQuitChan channel
+func ForceQuit() <-chan bool {
+	return forceQuitChan
 }
 
 // WaitClean blocks until cleanupListener channel receives
