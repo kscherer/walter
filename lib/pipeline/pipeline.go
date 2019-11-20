@@ -33,8 +33,11 @@ type Stage struct {
 // Tasks typedef for array of tasks
 type Tasks []*task.Task
 
-// Handling function for interrupts
-var handler util.InterruptHandler
+// Handling function for interrupts, returns true if cleanup stage fails
+var interruptHandler func() bool
+var forceQuitHandler func()
+
+var singleStage bool
 
 // Load the yaml file into the Pipeline object
 func Load(b []byte) (Pipeline, error) {
@@ -56,12 +59,12 @@ func LoadFromFile(file string) (Pipeline, error) {
 	return Load(data)
 }
 
-// handleInterrupt sets up the channel for listening system interrupt signals
+// handleInterrupt stops all running tasks, cleans up current stage and exit
 func handleInterrupt() {
 	log.Warningln("Interrupted, aborting all running tasks...")
 	log.Warningln("Press Ctrl-c again to force quit")
 
-	failed := handler()
+	failed := interruptHandler()
 	if failed {
 		os.Exit(1)
 	}
@@ -69,12 +72,50 @@ func handleInterrupt() {
 	os.Exit(0)
 }
 
+// handleForceQuit triggers force quit of all running tasks and exits instantly
+func handleForceQuit() {
+	log.Warningln("Received second Ctrl-c, force quit...")
+
+	forceQuitHandler()
+
+	os.Exit(1)
+}
+
+// commonInterruptHandler completes a set of common operations when program is interrupted
+func (p *Pipeline) commonInterruptHandler(cancel context.CancelFunc, currentStage int, buildID string) {
+	// Cancel current task
+	cancel()
+
+	// Wait for all tasks to cancel
+	task.CancelWg.Wait()
+
+	// Print skip messages for all subsequent stages if no specific stage is set to run
+	if !singleStage {
+		for j, stage := range p.Stages[currentStage+1:] {
+			log.Warnf("Stage %s [%d of %d] skipped: interrupt received", stage.Name, currentStage+j+2, len(p.Stages))
+		}
+	}
+}
+
+// commonInterruptHandler completes a set of common operations when force quitting program
+func (p *Pipeline) commonForceQuitHandler(ctx context.Context, cancel context.CancelFunc) {
+	select {
+	case <-ctx.Done():
+		util.StartForceQuit()
+	default:
+		// If the current stage is not terminated yet, terminate it first by cancelling its context
+		cancel()
+		util.StartForceQuit()
+	}
+}
+
 // Run all the tasks and cleanup commands in the pipeline
 func (p *Pipeline) Run(stageToRun string, buildID string) int {
 	// Setup interrupt handling
-	util.PrepareInterrupt(handleInterrupt)
+	util.PrepareInterrupt(handleInterrupt, handleForceQuit)
 
 	failed := false
+	singleStage = (stageToRun != "")
 
 	numStages := len(p.Stages)
 	for i, stage := range p.Stages {
@@ -88,31 +129,22 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
 
 		// Update function to handle interrupt for current stage
-		handler = func() bool {
-			// Cancel current task
-			cancel()
-
-			// Wait for all tasks to cancel
-			task.CancelWg.Wait()
-
-			// Print skip messages for all subsequent stages if no specific stage is set to run
-			if stageToRun == "" {
-				for j, stage := range p.Stages[i+1:] {
-					log.Warnf("Stage %s [%d of %d] skipped: interrupt received", stage.Name, i+j+2, numStages)
-				}
-			}
+		interruptHandler = func() bool {
+			p.commonInterruptHandler(cancel, i, buildID)
 
 			select {
-			// If user signals a force quit, skip cleanup
 			case <-util.ForceQuit():
-				log.Warningln("Received second Ctrl-c, force quit...")
+				// If user signals a force quit, skip cleanup
 				return true
-			// Else run cleanup for current stage
 			default:
+				// Else run cleanup for current stage
 				log.Info("Cleaning up...")
 				return p.cleanupStage(buildID, stage, numStage)
 			}
 		}
+
+		// Update function to handle force quit for current stage
+		forceQuitHandler = func() { p.commonForceQuitHandler(ctx, cancel) }
 
 		err := p.runTasks(ctx, cancel, stage.Tasks, nil)
 
@@ -144,12 +176,31 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 func (p *Pipeline) cleanupStage(buildID string, stage Stage, numStage int) bool {
 	failed := false
 	name := stage.Name
-	numStages := len(p.Stages)
 
 	if len(stage.Cleanup) > 0 {
-		log.Info(fmt.Sprintf("Stage %s [%d of %d] cleanup started", name, numStage, numStages))
+		log.Info(fmt.Sprintf("Stage %s cleanup started", name))
 		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
+
+		// Update handler to for cleanup stage
+		interruptHandler = func() bool {
+			p.commonInterruptHandler(cancel, numStage, buildID)
+
+			// Cleanup fails for either interrupt and force quit
+			return true
+		}
+
+		// Update function to handle force quit for current stage
+		forceQuitHandler = func() { p.commonForceQuitHandler(ctx, cancel) }
+
 		err := p.runTasks(ctx, cancel, stage.Cleanup, nil)
+
+		if util.Interrupted(ctx) {
+			// This line effectively blocks subsequent lines from running
+			// if an interruption occurs when the task is running. A call
+			// to exit the program will happen in handleInterrupt function
+			util.WaitClean()
+		}
+
 		if err != nil {
 			log.Error(fmt.Sprintf("Stage %s cleanup failed", name))
 			failed = true

@@ -7,8 +7,6 @@ import (
 	"sync/atomic"
 )
 
-type InterruptHandler func() bool
-
 // Create channel to listen to the completion of cleanup
 var cleanupListener = make(chan struct{})
 
@@ -24,29 +22,35 @@ var forceQuitChan chan bool
 
 // listenInterrupt listens for SIGINT, atomically sets the value
 // for interrupted and run the handler function
-func listenInterrupt(handleInterrupt func()) {
+func listenInterrupt(handleInterrupt func(), handleForceQuit func()) {
 	<-interruptListener
 	interrupted.Store(true)
-	go handleForceQuit()
+	go waitForceQuit(handleForceQuit)
 
 	handleInterrupt()
 }
 
-// handleForceQuit listens for the second SIGINT and close the forceQuitChan
-func handleForceQuit() {
+// waitForceQuit listens for the second SIGINT and close the forceQuitChan
+func waitForceQuit(handleForceQuit func()) {
 	<-interruptListener
+	handleForceQuit()
+}
+
+// StartForceQuit closes the forceQuitChan channel to signal a force quit to
+// running tasks
+func StartForceQuit() {
 	close(forceQuitChan)
 }
 
 // PrepareInterrupt initializes interrupted value and sets up
 // the interrupt listener
-func PrepareInterrupt(handleInterrupt func()) {
+func PrepareInterrupt(handleInterrupt func(), handleForceQuit func()) {
 	interrupted.Store(false)
 
 	forceQuitChan = make(chan bool)
 
 	signal.Notify(interruptListener, os.Interrupt)
-	go listenInterrupt(handleInterrupt)
+	go listenInterrupt(handleInterrupt, handleForceQuit)
 }
 
 // Interrupted returns true when a SIGINT is received for the current context
