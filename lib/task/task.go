@@ -155,6 +155,9 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 						select {
 						case <-time.After(timeoutBeforeKill):
 							log.Warnf("[%s] Did not terminate in %v, sending SIGKILL...", t.Name, timeoutBeforeKill)
+
+							util.StartForceQuit()
+
 							err := syscall.Kill(-t.Cmd.Process.Pid, syscall.SIGKILL)
 							if err != nil {
 								log.Errorf("[%s] failed to terminate: %v", t.Name, err)
