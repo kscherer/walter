@@ -122,9 +122,13 @@ func TestFailedParallelSerialParallel(t *testing.T) {
 
 // signalInterrupt find the process of given pid and send a
 // SIGINT to the process
-func signalInterrupt(t *testing.T, pid int) {
-	// Wait 500ms before interrupting
-	time.Sleep(500 * time.Millisecond)
+func signalInterrupt(t *testing.T, pid int, interruptWait ...time.Duration) {
+	if len(interruptWait) > 0 {
+		time.Sleep(interruptWait[0])
+	} else {
+		// Wait 500ms before interrupting by default
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	proc, e := os.FindProcess(pid)
 	if e != nil {
@@ -140,30 +144,47 @@ func signalInterrupt(t *testing.T, pid int) {
 	time.Sleep(1 * time.Second)
 }
 
-// checkInterrupt checks whether the interrupt stopped subsequent
-// tasks from running and ran the cleanup stage
-func checkInterrupt(t *testing.T, filePrefix string) {
+// checkTest checks if any .tmp file exists. If so, the test will fail
+func checkTest(t *testing.T, filePrefix string, norunErr string, cleanupErr string) {
 	// norun.tmp is created in the task after the interrupted task
 	// so it should not be created at all
 	_, err := os.Stat("test/temp/norun.tmp")
 	if err == nil {
-		t.Error("ERROR: Command executed after interrupt")
+		t.Errorf("ERROR: %s", norunErr)
 	}
 
-	// Cleanup stage should remove the .tmp files with given prefix and an index
+	// The .tmp files with given prefix and an index should not exist
 	for i := 0; i <= 3; i++ {
 		_, err = os.Stat(fmt.Sprintf("test/temp/%s%v.tmp", filePrefix, i))
 		if err == nil || !os.IsNotExist(err) {
-			t.Error("ERROR: Cleanup not run properly")
+			t.Errorf("ERROR: %s", cleanupErr)
 		}
 	}
 }
 
-// checkInterruptTimeout sleeps for an extra 5s before calling checkInterrupt.
+// checkInterrupt checks whether the interrupt stopped subsequent
+// tasks from running and ran the cleanup stage
+func checkInterrupt(t *testing.T, filePrefix string) {
+	checkTest(t, filePrefix, "Command executed after interrupt", "Cleanup not run properly")
+}
+
+// checkCleanupInterrupt checks whether the interrupt stopped subsequent
+// cleanup tasks from running
+func checkCleanupInterrupt(t *testing.T, filePrefix string) {
+	checkTest(t, filePrefix, "Cleanup task executed after interrupt", "Cleanup not interrupted properly")
+}
+
+// checkForceQuit checks whether the interrupt stopped subsequent
+// tasks from running and skipped the cleanup stage
+func checkForceQuit(t *testing.T, filePrefix string) {
+	checkTest(t, filePrefix, "Command executed after force quit", "Cleanup not skipped")
+}
+
+// checkInterruptTimeout sleeps for an extra 5s before calling checkForceQuit.
 // This checks whether SIGKILL is sent if cleanup is not called 5s after interrupt
 func checkInterruptTimeout(t *testing.T, filePrefix string) {
 	time.Sleep(5 * time.Second)
-	checkInterrupt(t, filePrefix)
+	checkForceQuit(t, filePrefix)
 }
 
 // The following complication is caused by the os.Exit used to end Walter
@@ -215,6 +236,7 @@ func TestInterruptSerial(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)
@@ -232,6 +254,7 @@ func TestInterruptParallel(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)
@@ -249,6 +272,7 @@ func TestInterruptParallelSerial(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)
@@ -266,6 +290,7 @@ func TestInterruptParallelSerialParallel(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)
@@ -283,6 +308,7 @@ func TestInterruptGoodScript(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)
@@ -300,9 +326,10 @@ func TestInterruptTimeout(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
-	if cmdError != nil {
-		t.Errorf("ERROR: Task Failed, %v", cmdError)
+	if cmdError == nil {
+		t.Errorf("ERROR: Force quit exited without error")
 	}
 	checkInterruptTimeout(t, "TaskBad")
 }
@@ -318,11 +345,105 @@ func TestInterruptForce(t *testing.T) {
 	// send two interrupts to force kill
 	signalInterrupt(t, pid)
 	signalInterrupt(t, pid)
+	// Wait until program finished running
 	cmdError := <-cmdChannel
-	if cmdError != nil {
-		t.Errorf("ERROR: Task Failed, %v", cmdError)
+	if cmdError == nil {
+		t.Errorf("ERROR: Force quit exited without error")
 	}
-	checkInterrupt(t, "TaskBad")
+	checkForceQuit(t, "TaskBad")
+}
+
+func TestInterruptParallelForce(t *testing.T) {
+	pidChannel, cmdChannel := runInterruptTask(t, "Bad Parallel", "TestInterruptParallelForce")
+
+	if pidChannel == nil {
+		return
+	}
+
+	pid := <-pidChannel
+	// send two interrupts to force kill
+	signalInterrupt(t, pid)
+	signalInterrupt(t, pid)
+	// Wait until program finished running
+	cmdError := <-cmdChannel
+	if cmdError == nil {
+		t.Errorf("ERROR: Force quit exited without error")
+	}
+	checkForceQuit(t, "TaskBadParallel")
+}
+
+func TestInterruptCleanup(t *testing.T) {
+	pidChannel, cmdChannel := runInterruptTask(t, "Long Clean", "TestInterruptCleanup")
+
+	if pidChannel == nil {
+		return
+	}
+
+	pid := <-pidChannel
+	// Interrupt when cleanup is running
+	signalInterrupt(t, pid, 1500*time.Millisecond)
+	// Wait until program finished running
+	cmdError := <-cmdChannel
+	if cmdError == nil {
+		t.Errorf("ERROR: Interrupted cleanup exited without error")
+	}
+	checkCleanupInterrupt(t, "TaskLongClean")
+}
+
+func TestInterruptCleanupTimeout(t *testing.T) {
+	pidChannel, cmdChannel := runInterruptTask(t, "Bad Clean", "TestInterruptCleanupTimeout")
+
+	if pidChannel == nil {
+		return
+	}
+
+	pid := <-pidChannel
+	// Interrupt when cleanup is running
+	signalInterrupt(t, pid, 1500*time.Millisecond)
+	// Wait until program finished running
+	cmdError := <-cmdChannel
+	if cmdError == nil {
+		t.Errorf("ERROR: Interrupted cleanup exited without error")
+	}
+	checkInterruptTimeout(t, "TaskBadClean")
+}
+
+func TestInterruptForceQuitCleanup(t *testing.T) {
+	pidChannel, cmdChannel := runInterruptTask(t, "Bad Clean", "TestInterruptForceQuitCleanup")
+
+	if pidChannel == nil {
+		return
+	}
+
+	pid := <-pidChannel
+	// First interrupt the running task, then force quit cleanup
+	signalInterrupt(t, pid)
+	signalInterrupt(t, pid)
+	// Wait until program finished running
+	cmdError := <-cmdChannel
+	if cmdError == nil {
+		t.Errorf("ERROR: Interrupted cleanup exited without error")
+	}
+	checkCleanupInterrupt(t, "TaskBadClean")
+}
+
+func TestInterruptInterrruptAndForceQuitCleanup(t *testing.T) {
+	pidChannel, cmdChannel := runInterruptTask(t, "Bad Clean", "TestInterruptInterrruptAndForceQuitCleanup")
+
+	if pidChannel == nil {
+		return
+	}
+
+	pid := <-pidChannel
+	// First interrupt when cleanup is running, then force quit cleanup
+	signalInterrupt(t, pid, 1500*time.Millisecond)
+	signalInterrupt(t, pid)
+	// Wait until program finished running
+	cmdError := <-cmdChannel
+	if cmdError == nil {
+		t.Errorf("ERROR: Interrupted cleanup exited without error")
+	}
+	checkCleanupInterrupt(t, "TaskBadClean")
 }
 
 func TestInterruptAbort(t *testing.T) {
@@ -335,6 +456,7 @@ func TestInterruptAbort(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)
@@ -352,6 +474,7 @@ func TestInterruptParallelAbort(t *testing.T) {
 	pid := <-pidChannel
 	signalInterrupt(t, pid)
 
+	// Wait until program finished running
 	cmdError := <-cmdChannel
 	if cmdError != nil {
 		t.Errorf("ERROR: Task Failed, %v", cmdError)

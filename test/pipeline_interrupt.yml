@@ -46,12 +46,12 @@ stages:
 - name: Bad Interrupt
   tasks:
     - name: "Run bad script"
-      command: echo "Running bad script ..." && bash test/bad.sh > test/temp/TaskBad1.tmp
+      command: echo "Running bad script ..." && bash test/bad.sh > test/temp/TaskBad1.tmp.noclean
     - name: "Parallel: Task No Run"
       command: echo "No Run" > test/temp/norun.tmp
   cleanup:
     - name: "Bad: Cleanup"
-      command: rm -f test/temp/TaskBad1.tmp
+      command: mv test/temp/TaskBad1.tmp.noclean test/temp/TaskBad1.tmp
 - name: Good And Bad Interrupt
   tasks:
     - name: "Good And Bad: Good"
@@ -65,6 +65,48 @@ stages:
   cleanup:
     - name: "Good And Bad: Cleanup"
       command: rm -f test/temp/TaskGoodAndBad*.tmp
+- name: Bad Parallel
+  tasks:
+    - name: "Bad Parallel: Parallel"
+      parallel:
+        - name: "Bad Parallel: Task 1"
+          command: echo "Task Bad Parallel 1 ..." && bash test/bad.sh > test/temp/TaskBadParallel1.tmp.noclean
+        - name: "Bad Parallel: Task 2"
+          command: echo "Task Bad Parallel 2 ..." && bash test/bad.sh > test/temp/TaskBadParallel2.tmp.noclean
+        - name: "Bad Parallel: Task 3"
+          command: echo "Task Bad Parallel 3 ..." && bash test/bad.sh > test/temp/TaskBadParallel3.tmp.noclean
+    - name: "Bad Parallel: No Run"
+      command: echo "No Run ..." > test/temp/norun.tmp
+  cleanup:
+    - name: "Bad Parallel: Cleanup"
+      command: |-
+        mv test/temp/TaskBadParallel1.tmp.noclean test/temp/TaskBadParallel1.tmp && \
+        mv test/temp/TaskBadParallel2.tmp.noclean test/temp/TaskBadParallel2.tmp && \
+        mv test/temp/TaskBadParallel3.tmp.noclean test/temp/TaskBadParallel3.tmp
+- name: Long Clean
+  tasks:
+    - name: "Long Clean: Task 1"
+      command: echo "Task 1 ..." > test/temp/TaskLongClean0.tmp.noclean && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Long Clean: Cleanup 1"
+      command: |-
+        echo "Cleanup 1" && stress --cpu 1 --timeout 3s; \
+        mv test/temp/TaskLongClean0.tmp.noclean test/temp/TaskLongClean0.tmp && \
+        mv test/temp/TaskLongClean1.tmp.noclean test/temp/TaskLongClean1.tmp
+    - name: "Long Clean: Cleanup 2"
+      command: echo "Cleanup 2" && stress --cpu 1 --timeout 3s; touch norun.tmp
+- name: Bad Clean
+  tasks:
+    - name: "Bad Clean: Task 1"
+      command: echo "Task 1 ..." > test/temp/TaskBadClean0.tmp.noclean && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Bad Clean: Cleanup 1"
+      command: |-
+        bash test/bad.sh; \
+        mv test/temp/TaskLongClean0.tmp.noclean test/temp/TaskLongClean0.tmp && \
+        mv test/temp/TaskLongClean1.tmp.noclean test/temp/TaskLongClean1.tmp
+    - name: "Bad Clean: Cleanup 2"
+      command: echo "Cleanup 2" && stress --cpu 1 --timeout 3s; touch norun.tmp
 - name: Abort Task
   tasks:
     - name: "Abort Task"
