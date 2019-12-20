@@ -1,0 +1,69 @@
+stages:
+- name: Serial
+  tasks:
+    - name: "Serial: Task 1"
+      command: echo "Serial Task 1 ..."
+    - name: "Serial: Task 2"
+      command: echo "Serial Task 2 ..." && stress --cpu 1 --timeout 3s
+    - name: "Serial: Task 3"
+      command: echo "Serial Task 3 ..."
+- name: Directory
+  tasks:
+    - name: "Directory: Task 1"
+      command: pwd
+      directory: /usr
+- name: Parallel
+  tasks:
+    - name: "Parallel: Task 1"
+      command: echo "Parallel Task 1 ..."
+    - name: "Parallel: Task 2"
+      command: echo "Parallel Task 2 ..."
+    - include: test/parallel.yml
+    - name: "Parallel: Task 4"
+      command: echo "Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel: Cleanup"
+      command: echo "Cleanup Parallel ..."
+- name: Parallel Serial
+  tasks:
+    - name: "Parallel Serial: Task 1"
+      command: echo "Parallel Serial Task 1 ..."
+    - name: "Parallel Serial: Task 2"
+      command: echo "Parallel Serial Task 2 ..."
+    - include: test/parallel_serial.yml
+    - name: "Parallel Serial: Task 4"
+      command: echo "Parallel Serial Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel Serial: Cleanup"
+      command: echo "Cleanup Parallel Serial ..."
+- name: Parallel Serial Parallel
+  tasks:
+    - name: "Parallel Serial Parallel: Task 1"
+      command: echo "Parallel Serial Parallel Task 1 ..."
+    - name: "Parallel Serial Parallel: Task 2"
+      command: echo "Parallel Serial Parallel Task 2 ..."
+    - include: test/parallel_serial_parallel.yml
+    - name: "Parallel Serial Parallel: Task 4"
+      command: echo "Parallel Serial Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel Serial Parallel: Cleanup"
+      command: echo "Cleanup Parallel Serial Parallel ..."
+- name: Script
+  tasks:
+    - name: "Run good script"
+      command: echo "Running good script ..." && bash test/good.sh
+  cleanup:
+    - name: "Good: Cleanup"
+      command: echo "Cleanup Good ..."
+- name: Wait For
+  tasks:
+    - name: "Wait For 3 seconds"
+      command: echo "3 seconds passed"
+      wait_for:
+        delay: 3
+  cleanup:
+    - name: "Wait For: Cleanup"
+      command: echo "Cleanup Wait For ..."
+- name: 8
+- name: 9
+- name: 10

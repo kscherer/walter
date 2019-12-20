@@ -1,0 +1,8 @@
+- name: "Parallel"
+  parallel:
+    - name: "Parallel 1"
+      command: echo "Parallel 1" && stress --cpu 1 --timeout 3s
+    - name: "Parallel 2"
+      command: echo "Parallel 2" && stress --cpu 1 --timeout 3s
+    - name: "Parallel 3"
+      command: echo "Parallel 3"

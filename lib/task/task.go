@@ -2,6 +2,7 @@ package task
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,11 +10,12 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
-
-	"golang.org/x/net/context"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/walter-cd/walter/lib/util"
 )
 
 const (
@@ -24,6 +26,8 @@ const (
 	Skipped
 	Aborted
 )
+
+const timeoutBeforeKill = 5 * time.Second
 
 type key int
 
@@ -50,10 +54,17 @@ type outputHandler struct {
 	task *Task
 }
 
+var CancelWg sync.WaitGroup
+
 func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Task) error {
 	if t.Command == "" {
 		return nil
 	}
+
+	var statusLock sync.Mutex
+
+	// Add current task into the wait group
+	CancelWg.Add(1)
 
 	if t.Directory != "" {
 		re := regexp.MustCompile(`\$[A-Z1-9\-_]+`)
@@ -120,33 +131,94 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 
 	t.Status = Running
 
+	// Channel to receive the return value or signal from cmd.Wait()
+	commandFinished := make(chan error, 1)
+
+	// Channel to inform the goroutine below that current task has quit
+	quitTask := make(chan struct{}, 1)
+
 	go func(t *Task) {
+		defer CancelWg.Done()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-ctx.Done(): // Handle interrupt or failures and quit
+				// Acquire lock to read and change task status
+				statusLock.Lock()
+				defer statusLock.Unlock()
+
 				if t.Status == Running {
 					t.Status = Aborted
-					t.Cmd.Process.Kill()
-					pgid, err := syscall.Getpgid(t.Cmd.Process.Pid)
-					if err == nil {
-						syscall.Kill(-pgid, syscall.SIGTERM)
+
+					if _, err := os.FindProcess(t.Cmd.Process.Pid); err == nil {
+						syscall.Kill(-t.Cmd.Process.Pid, syscall.SIGTERM)
+
+						select {
+						case <-time.After(timeoutBeforeKill):
+							log.Warnf("[%s] Did not terminate in %v, sending SIGKILL...", t.Name, timeoutBeforeKill)
+
+							util.StartForceQuit()
+
+							err := syscall.Kill(-t.Cmd.Process.Pid, syscall.SIGKILL)
+							if err != nil {
+								log.Errorf("[%s] failed to terminate: %v", t.Name, err)
+							}
+						case err := <-commandFinished:
+							// https://github.com/golang/go/issues/19798
+							// Go does not mark process as commandFinished when interrupted by signal, so the signal in the
+							// error returned by Cmd.Wait() is first extracted and then compared with SIGTERM signal
+							// provided by the OS
+							if err != nil {
+								exitSig := err.(*exec.ExitError).Sys().(syscall.WaitStatus).Signal()
+
+								if exitSig != syscall.SIGTERM && exitSig != syscall.SIGINT {
+									log.Errorf("[%s] commandFinished with error: %v", t.Name, err)
+								}
+							}
+						case <-util.ForceQuit():
+							// https://golang.org/pkg/os/#FindProcess
+							// First check if process still exists using os.FindProcess. This check is only valid on non-Unix systems.
+							// On non-Unix systems, FindProcess returns an error if the process does not exist
+							// On Unix systems, FindProcess succeeds and returns a new process with given PID if the process
+							// does not exist.
+							if _, err := os.FindProcess(t.Cmd.Process.Pid); err == nil {
+								err := syscall.Kill(-t.Cmd.Process.Pid, syscall.SIGKILL)
+								// Check errno code in case we are on a Unix system and syscall.Kill
+								// returned an ESRCH (no such process) error
+								if err != nil && err != syscall.ESRCH {
+									log.Errorf("[%s] failed to terminate: %v", t.Name, err)
+								}
+							}
+						}
+
+						log.Warnf("[%s] aborted", t.Name)
 					}
-					log.Warnf("[%s] aborted", t.Name)
 				}
+				return
+			case <-quitTask: // Quit after current task finished
 				return
 			}
 		}
 	}(t)
 
-	t.Cmd.Wait()
+	commandFinished <- t.Cmd.Wait()
+
+	// Acquire lock to read and change task status
+	statusLock.Lock()
+	defer statusLock.Unlock()
 
 	// Flush any remaining bytes on the buffer
 	var p []byte
-	if _, err := t.Stderr.Read(p); err == nil {
+	if _, err := t.Stderr.Read(p); len(p) > 0 && err == nil {
 		log.Infof("[%s] %s", t.Name, string(p))
 	}
-	if _, err := t.Stdout.Read(p); err == nil {
+	if _, err := t.Stdout.Read(p); len(p) > 0 && err == nil {
 		log.Infof("[%s] %s", t.Name, string(p))
+	}
+
+	// If the current task is interrupted, abort changing the status of
+	// the task and return immediately
+	if util.Interrupted(ctx) {
+		return nil
 	}
 
 	if t.Cmd.ProcessState.Success() {
@@ -154,9 +226,12 @@ func (t *Task) Run(ctx context.Context, cancel context.CancelFunc, prevTask *Tas
 	} else if t.Status == Running {
 		t.Status = Failed
 		cancel()
+
+		close(quitTask)
 		return errors.New("Task failed")
 	}
 
+	close(quitTask)
 	return nil
 }
 

@@ -1,0 +1,57 @@
+stages:
+- name: Serial Fail
+  tasks:
+    - name: "Serial: Task 1"
+      command: echo "Serial Task 1 ..."
+    - name: "Serial: Task 2"
+      command: echo "Serial Task 2 ..." && abc
+    - name: "Serial: Task 3"
+      command: echo "Serial Task 3 ..."
+- name: Directory Fail
+  tasks:
+    - name: "Directory: Task 1"
+      command: pwd
+      directory: /abc
+- name: Parallel Fail
+  tasks:
+    - name: "Parallel: Task 1"
+      command: echo "Parallel Task 1 ..."
+    - name: "Parallel: Task 2"
+      command: echo "Parallel Task 2 ..."
+    - include: test/parallel_fail.yml
+    - name: "Parallel: Task 4"
+      command: echo "Parallel Task 4 ..."
+  cleanup:
+    - name: "Parallel: Cleanup"
+      command: echo "Cleanup Parallel ..."
+- name: Parallel Serial Fail
+  tasks:
+    - name: "Parallel Serial: Task 1"
+      command: echo "Parallel Serial Task 1 ..."
+    - name: "Parallel Serial: Task 2"
+      command: echo "Parallel Serial Task 2 ..."
+    - include: test/parallel_serial_fail.yml
+    - name: "Parallel Serial: Task 4"
+      command: echo "Parallel Serial Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel Serial: Cleanup"
+      command: echo "Cleanup Parallel Serial ..."
+- name: Parallel Serial Parallel Fail
+  tasks:
+    - name: "Parallel Serial Parallel: Task 1"
+      command: echo "Parallel Serial Parallel Task 1 ..."
+    - name: "Parallel Serial Parallel: Task 2"
+      command: echo "Parallel Serial Parallel Task 2 ..."
+    - include: test/parallel_serial_parallel_fail.yml
+    - name: "Parallel Serial Parallel: Task 4"
+      command: echo "Parallel Serial Parallel Task 4 ..." && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: "Parallel Serial Parallel: Cleanup"
+      command: echo "Cleanup Parallel Serial Parallel ..."
+- name: Clean Fail
+  tasks:
+    - name: "Clean will fail"
+      command: echo "Clean will fail" && stress --cpu 1 --timeout 1s
+  cleanup:
+    - name: Clean Fail
+      command: echo "Failed Clean ..." && abc

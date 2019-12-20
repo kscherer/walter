@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -12,10 +13,9 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"golang.org/x/net/context"
-
 	"github.com/go-yaml/yaml"
 	"github.com/walter-cd/walter/lib/task"
+	"github.com/walter-cd/walter/lib/util"
 )
 
 // Pipeline holds global settings and an array stages
@@ -32,6 +32,12 @@ type Stage struct {
 
 // Tasks typedef for array of tasks
 type Tasks []*task.Task
+
+// Handling function for interrupts, returns true if cleanup stage fails
+var interruptHandler func() bool
+var forceQuitHandler func()
+
+var singleStage bool
 
 // Load the yaml file into the Pipeline object
 func Load(b []byte) (Pipeline, error) {
@@ -53,9 +59,63 @@ func LoadFromFile(file string) (Pipeline, error) {
 	return Load(data)
 }
 
+// handleInterrupt stops all running tasks, cleans up current stage and exit
+func handleInterrupt() {
+	log.Warningln("Interrupted, aborting all running tasks...")
+	log.Warningln("Press Ctrl-c again to force quit")
+
+	failed := interruptHandler()
+	if failed {
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+}
+
+// handleForceQuit triggers force quit of all running tasks and exits instantly
+func handleForceQuit() {
+	log.Warningln("Received second Ctrl-c, force quit...")
+
+	forceQuitHandler()
+
+	os.Exit(1)
+}
+
+// commonInterruptHandler completes a set of common operations when program is interrupted
+func (p *Pipeline) commonInterruptHandler(cancel context.CancelFunc, currentStage int, buildID string) {
+	// Cancel current task
+	cancel()
+
+	// Wait for all tasks to cancel
+	task.CancelWg.Wait()
+
+	// Print skip messages for all subsequent stages if no specific stage is set to run
+	if !singleStage {
+		for j, stage := range p.Stages[currentStage+1:] {
+			log.Warnf("Stage %s [%d of %d] skipped: interrupt received", stage.Name, currentStage+j+2, len(p.Stages))
+		}
+	}
+}
+
+// commonInterruptHandler completes a set of common operations when force quitting program
+func (p *Pipeline) commonForceQuitHandler(ctx context.Context, cancel context.CancelFunc) {
+	select {
+	case <-ctx.Done():
+		util.StartForceQuit()
+	default:
+		// If the current stage is not terminated yet, terminate it first by cancelling its context
+		cancel()
+		util.StartForceQuit()
+	}
+}
+
 // Run all the tasks and cleanup commands in the pipeline
 func (p *Pipeline) Run(stageToRun string, buildID string) int {
+	// Setup interrupt handling
+	util.PrepareInterrupt(handleInterrupt, handleForceQuit)
+
 	failed := false
+	singleStage = (stageToRun != "")
 
 	numStages := len(p.Stages)
 	for i, stage := range p.Stages {
@@ -67,7 +127,34 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 		}
 		log.Info(fmt.Sprintf("Stage %s [%d of %d] started", name, numStage, numStages))
 		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
+
+		// Update function to handle interrupt for current stage
+		interruptHandler = func() bool {
+			p.commonInterruptHandler(cancel, i, buildID)
+
+			select {
+			case <-util.ForceQuit():
+				// If user signals a force quit, skip cleanup
+				return true
+			default:
+				// Else run cleanup for current stage
+				log.Info("Cleaning up...")
+				return p.cleanupStage(buildID, stage, numStage)
+			}
+		}
+
+		// Update function to handle force quit for current stage
+		forceQuitHandler = func() { p.commonForceQuitHandler(ctx, cancel) }
+
 		err := p.runTasks(ctx, cancel, stage.Tasks, nil)
+
+		if util.Interrupted(ctx) {
+			// This line effectively blocks subsequent lines from running
+			// if an interruption occurs when the task is running. A call
+			// to exit the program will happen in handleInterrupt function
+			util.WaitClean()
+		}
+
 		if err != nil {
 			log.Error(fmt.Sprintf("Stage %s failed", name))
 			failed = true
@@ -75,24 +162,54 @@ func (p *Pipeline) Run(stageToRun string, buildID string) int {
 			log.Info(fmt.Sprintf("Stage %s succeeded", name))
 		}
 
-		if len(stage.Cleanup) > 0 {
-			log.Info(fmt.Sprintf("Stage %s [%d of %d] cleanup started", name, numStage, numStages))
-			ctx, cancel = context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
-			err = p.runTasks(ctx, cancel, stage.Cleanup, nil)
-			if err != nil {
-				log.Error(fmt.Sprintf("Stage %s cleanup failed", name))
-				failed = true
-			} else {
-				log.Info(fmt.Sprintf("Stage %s cleanup succeeded", name))
-			}
-		}
+		cleanFailed := p.cleanupStage(buildID, stage, numStage)
 
-		if failed {
+		if failed || cleanFailed {
 			return 1
 		}
 	}
 
 	return 0
+}
+
+// cleanupStage runs the cleanup task for the stage specified
+func (p *Pipeline) cleanupStage(buildID string, stage Stage, numStage int) bool {
+	failed := false
+	name := stage.Name
+
+	if len(stage.Cleanup) > 0 {
+		log.Info(fmt.Sprintf("Stage %s cleanup started", name))
+		ctx, cancel := context.WithCancel(context.WithValue(context.Background(), task.BuildID, buildID))
+
+		// Update handler to for cleanup stage
+		interruptHandler = func() bool {
+			p.commonInterruptHandler(cancel, numStage, buildID)
+
+			// Cleanup fails for either interrupt and force quit
+			return true
+		}
+
+		// Update function to handle force quit for current stage
+		forceQuitHandler = func() { p.commonForceQuitHandler(ctx, cancel) }
+
+		err := p.runTasks(ctx, cancel, stage.Cleanup, nil)
+
+		if util.Interrupted(ctx) {
+			// This line effectively blocks subsequent lines from running
+			// if an interruption occurs when the task is running. A call
+			// to exit the program will happen in handleInterrupt function
+			util.WaitClean()
+		}
+
+		if err != nil {
+			log.Error(fmt.Sprintf("Stage %s cleanup failed", name))
+			failed = true
+		} else {
+			log.Info(fmt.Sprintf("Stage %s cleanup succeeded", name))
+		}
+	}
+
+	return failed
 }
 
 func includeTasks(file string) (Tasks, error) {
@@ -119,7 +236,20 @@ func includeTasks(file string) (Tasks, error) {
 
 func (p *Pipeline) runTasks(ctx context.Context, cancel context.CancelFunc, tasks Tasks, prevTask *task.Task) error {
 	failed := false
+
+	// Add first level tasks into the wait group
+	taskNum := len(tasks)
+	task.CancelWg.Add(taskNum)
+
+	defer task.CancelWg.Add(-taskNum)
+
 	for i, t := range tasks {
+		if util.Interrupted(ctx) {
+			// Skip execution of all subsequent tasks if interrupted
+			log.Warnf("[%s] Task skipped: interrupt received", t.Name)
+			continue
+		}
+
 		if i > 0 {
 			prevTask = tasks[i-1]
 		}
@@ -130,7 +260,12 @@ func (p *Pipeline) runTasks(ctx context.Context, cancel context.CancelFunc, task
 				log.Error(err)
 				return err
 			}
-			p.runTasks(ctx, cancel, include, prevTask)
+
+			err = p.runTasks(ctx, cancel, include, prevTask)
+			if err != nil {
+				failed = true
+			}
+
 			continue
 		}
 
@@ -197,15 +332,26 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 			defer wg.Done()
 
 			if len(t.Serial) > 0 {
-				p.runSerial(ctx, cancel, t, prevTask)
+				err := p.runSerial(ctx, cancel, t, prevTask)
+				if err != nil {
+					log.Errorf("[%s] %v", t.Name, err)
+				}
 				return
 			}
 
-			t.Run(ctx, cancel, prevTask)
+			err := t.Run(ctx, cancel, prevTask)
+			if err != nil {
+				log.Errorf("[%s] %s", t.Name, err)
+			}
 
 		}(t)
 	}
 	wg.Wait()
+
+	// If an interrupt is received, return immediately
+	if util.Interrupted(ctx) {
+		return nil
+	}
 
 	t.Status = task.Succeeded
 
@@ -220,10 +366,11 @@ func (p *Pipeline) runParallel(ctx context.Context, cancel context.CancelFunc, t
 		}
 	}
 
-	if t.Status == task.Failed {
-		return errors.New("One of parallel tasks failed")
-	}
 	log.Infof("[%s] End task", t.Name)
+	if t.Status == task.Failed {
+		return errors.New("Parallel task failed")
+	}
+
 	return nil
 }
 
@@ -243,7 +390,16 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 
 	log.Infof("[%s] Start task", t.Name)
 
-	p.runTasks(ctx, cancel, tasks, prevTask)
+	err := p.runTasks(ctx, cancel, tasks, prevTask)
+	if err != nil {
+		log.Errorf("[%s] %s", t.Name, err)
+	}
+
+	// If an interrupt is received, return immediately
+	if util.Interrupted(ctx) {
+		return nil
+	}
+
 	t.Status = task.Succeeded
 	for _, child := range tasks {
 		if child.Status == task.Failed {
@@ -255,12 +411,17 @@ func (p *Pipeline) runSerial(ctx context.Context, cancel context.CancelFunc, t *
 	t.Stderr = new(bytes.Buffer)
 
 	lastTask := tasks[len(tasks)-1]
-	t.Stdout.Write(lastTask.Stdout.Bytes())
-	t.Stderr.Write(lastTask.Stderr.Bytes())
 
-	if t.Status == task.Failed {
-		return errors.New("One of serial tasks failed")
+	// Stdout and Stderr buffer of lastTask could be nil if it is skipped
+	if lastTask.Stdout != nil {
+		t.Stdout.Write(lastTask.Stdout.Bytes())
+		t.Stderr.Write(lastTask.Stderr.Bytes())
 	}
+
 	log.Infof("[%s] End task", t.Name)
+	if t.Status == task.Failed {
+		return errors.New("Serial task failed")
+	}
+
 	return nil
 }
